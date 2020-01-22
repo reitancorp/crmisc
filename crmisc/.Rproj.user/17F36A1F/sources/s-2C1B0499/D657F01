@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1579639960904.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2304903085",
+    "id" : "D657F01",
+    "lastKnownWriteTime" : 1576234349,
+    "last_content_update" : 1576234349,
+    "path" : "~/NASdrive/Forsk/EOCAD/EOCAD1/EOCAD_R/main.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "165,12",
+        "scrollLine" : "153"
+    },
+    "relative_order" : 6,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

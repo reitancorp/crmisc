@@ -1,0 +1,126 @@
+pacman::p_load(tidyverse, haven, survival, relsurv)
+
+# Get mortality rates for general population:
+swepop <- transrate.hmd('/Users/Christian/NASdrive/Forsk/swe_mort/STATS/mltper_1x1.txt', 
+                        '/Users/Christian/NASdrive/Forsk/swe_mort/STATS/fltper_1x1.txt')
+### Maybe assume that 2018 is like 2017?
+dimnames(swepop)$year[1] <- "2018"
+swepop[, '2018', ] <- swepop[, '2017', ]
+
+# format data for analysis
+mainrel <- main %>%
+  filter(indexdate < as.Date('2018-01-01')) %>%
+  sample_n(10000) %>%
+  mutate(sex = d_gender,
+         year = as.Date(indexdate, origin = '1960-01-01'), 
+         agegroup2 = round(age, -1),
+         agegroup2 = case_when(agegroup2 < 30 ~ 30,
+                               agegroup2 > 90 ~ 90,
+                               TRUE ~ agegroup2),
+         age = floor(age * 365.241) 
+         ) %>%
+         select(sex, year, age, agegroup, agegroup2, survtime, survdead) %>%
+  # truncate at 15 yrs
+  mutate(survtime = ifelse(survtime > 15 * 365.241, 15 * 365.242, survtime),
+         survdead = ifelse(survtime > 15 * 365.241, 0, survdead)) %>%
+  as.data.frame()
+
+fit.relative <- rs.surv(Surv(survtime, survdead) ~ agegroup2,
+                  data = mainrel, 
+                  ratetable = swepop,
+                  method = 'ederer2'
+                  )
+
+summary(fit.relative)
+plot(fit.relative, ylim = c(0, 1))
+plot <- ggsurvplot(fit.relative,
+           censor = F,
+           conf.int = F,
+           ylim = c(0, 1.2),
+           risk.table = T
+           ) 
+plot$plot <- plot$plot + geom_hline(yintercept = 1, linetype = 'dashed')
+plot
+
+# compare actual versus expected (population) survival
+survival_expected <-
+  survexp(survtime ~ agegroup,
+          data = mainrel,
+          ratetable = swepop,
+          scale = 365.25
+      )
+survival_expected$n.censor <- 0
+survfit(survival_expected)
+survival_cohort <- 
+  survfit(Surv(survtime / 365.25, survdead) ~ agegroup2,
+          data = mainrel
+  )
+
+  ggsurvplot(survival_cohort, censor = F)
+ + geom_line(aes(x = time, y = survival), data = tibble(time = survival_expected$time, survival = survival_expected$surv))
+plot(survival_expected)
+
+head(survival_expected)
+
+plot(survival_cohort)
+ggsurvplot(cbind(surv = survival_expected$surv, n.risk = survival_expected$n.risk, time = survival_expected$time))
+
+tessttable <- 
+as.tibble(cbind(n.risk = survival_expected$n.risk[, 1],
+          time = survival_expected$time)) %>%
+  filter(lag(n.risk) > n.risk)
+
+
+
+# Crude _disease-specific_ survival compared to general population
+cmp_fit <- cmp.rel(Surv(survtime, survdead) ~ agegroup2,
+                   data = mainrel,
+                   ratetable = swepop
+                   )
+plot(cmp_fit)
+
+
+
+####### test from manual
+d1 <- subset(colrec, site == "colon" & diag >= as.date("1Jan1994") & diag <= as.date("31Dec1995"))
+d1$d.int <- 1
+d2 <- subset(colrec, site == "colon" & diag >= as.date("1Jan1999") & diag <= as.date("31Dec2000"))
+d2$d.int <- 2
+d <- rbind(d1, d2)
+ind <- which(d$time > 365.241 * 10)
+d$time[ind] <- 365.241 * 10
+d$stat[ind] <- 0
+
+
+fit_rsr <- rs.surv(Surv(time, stat) ~ d.int,
+                   data = d, ratetable = slopop, method = "ederer1",
+                   add.times = c(5, 10) * 365.241,
+                   rmap = list(age = age, sex = sex, year = diag))
+summary(fit_rsr, times = c(5, 10) * 365.241)
+
+plot(fit_rsr)
+
+breaks <- c(0, seq(from = 45, to = 90, by = 5), Inf)
+d$agegr <- cut(d$age / 365.241, breaks)
+
+nessie(Surv(time, stat) ~ d.int + agegr,
+       data = d[d$age / 365.241 > 70,], ratetable = slopop,
+       times = seq(0, 10, 2), rmap = list(age = age, sex = sex, year = diag))
+
+d2 <- d[d$age < 80 * 365.241, ]
+fit_net <- rs.surv(Surv(time, stat) ~ d.int, data = d2,
+                   ratetable = slopop, method = "pohar-perme", add.times = c(5, 10) *
+                   365.241, rmap = list(age = age, sex = sex, year = diag))
+summary(fit_net, times = c(5, 10) * 365.241)
+
+rs.diff(Surv(time, stat) ~ d.int, data = d2, ratetable = slopop,
+        rmap = list(age = age, sex = sex, year = diag))
+
+ggsurvplot(fit_net)
+
+
+cmp_fit <- cmp.rel(Surv(time, stat) ~ d.int, data = d,
+                   ratetable = slopop, rmap = list(age = age, sex = sex, year = diag))
+
+summary(cmp_fit, times = c(5, 10), scale = 365.241, area = TRUE)
+plot(cmp_fit)

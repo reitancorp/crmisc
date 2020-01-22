@@ -1,0 +1,142 @@
+---
+title: 'Smokeless tobacco, snus, at admission for percutaneous coronary intervention and future risk for coronary events'
+subtitle: "Statistical analyses"
+author: "Ole Fröbert, MD, PhD; Christian Reitan, MD, PhD; Dorothy K. Hatsukami, PhD; John Pernow, MD, PhD; Elmir Omerovic, MD, PhD; Pontus Andell, MD, PhD "
+date: '2019-04-24'
+output: word_document
+always_allow_html: yes
+---
+```{r preamble, echo = FALSE}
+pacman::p_load(knitr, tableone, tidyverse)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+## Baseline data
+```{r baseline}
+baselinetable <- readRDS('/Users/Christian/NASdrive/Forsk/snusprojektet/baselinetable.Rds')
+kableone(baselinetable, caption = 'Table describing baseline characteristics of the cohort')
+```
+
+## Patient selection flowchart
+```{r flowchart, fig.height = 6, fig.align='center'}
+library(DiagrammeRsvg)
+library(rsvg)
+DiagrammeR::grViz("digraph {
+graph[layout = dot]
+node [shape = rectangle, style = filled, fillcolor = Linen, width = 2.15, fontname = Helvetica]
+dat [label = 'SCAAR \n Database', shape = folder, fillcolor = Beige, height = 1]
+A [label = 'SCAAR entries \n 2009-2018 \n n = 564278']
+B [label = 'Stable CAD, \n UA/NSTEMI & STEMI \n n = 430469']
+C [label = 'No history of MI, PCI \n or CABG \n n = 243077']
+D [label = 'Underwent PCI \n n = 183227']
+E [label = 'Valid data on snus use \n n = 133250']
+F [label = 'Aged 18 or above \n n = 133245']
+G [label = 'Valid follow-up data \n n = 132849']
+H [label = 'First admission per \n patient \n n = 74958']
+I [label = 'Active snus user \n n = 6790']
+J [label = 'Not active snus user \n n = 68168']
+dat -> A -> B -> C -> D -> E -> F -> G -> H -> {I J}
+}") %>% 
+  export_svg() %>% 
+  charToRaw %>% 
+  rsvg_pdf('/Users/Christian/Dropbox/snusprojekt_graphs/flowchart.pdf')
+
+img1_path <- '/Users/Christian/Dropbox/snusprojekt_graphs/flowchart.pdf'
+include_graphics(img1_path)
+```
+
+## Cox models, results from imputed data sets
+```{r cox_imp}
+multivartab <- readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/multivartableoutput.Rds") 
+kable(multivartab)
+```
+
+## Cox models, complete cases analysis
+```{r validationtable}
+validationtable <- readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/validationtable.Rds") %>%
+  mutate_at(vars(-c('model', 'Pr(>|z|)')), funs(round(as.numeric(.), 3))) %>%
+  mutate_at(vars(-c('model', 'Pr(>|z|)')), funs(as.character(.))) %>%
+  replace_na(list(`Hazard Ratio` = '', `CI (lower)` = '', `CI (upper)`   = '',`Pr(>|z|)` = ''))
+kable(validationtable)
+```
+
+## Kaplan-Meier curves
+```{r KM, fig.height=4}
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/maceplot.Rds")
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/mortplot.Rds")
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/hf_hospplot.Rds")
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/satplot.Rds")
+```
+
+```{r KM_save, fig.height=4, include=FALSE}
+pdf("/Users/Christian/Dropbox/snusprojekt_graphs/maceplot.pdf", width = 7, height = 6)
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/maceplot.Rds")
+dev.off()
+
+pdf("/Users/Christian/Dropbox/snusprojekt_graphs/mortplot.pdf", width = 7, height = 6)
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/mortplot.Rds")
+dev.off()
+
+pdf("/Users/Christian/Dropbox/snusprojekt_graphs/hf_hospplot.pdf", width = 7, height = 6)
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/hf_hospplot.Rds")
+dev.off()
+
+pdf("/Users/Christian/Dropbox/snusprojekt_graphs/satplot.pdf", width = 7, height = 6)
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/satplot.Rds")
+dev.off()
+```
+
+
+
+## Snus use over time
+```{r time, fig.height=4}
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/plot.snusbyyear.Rds")
+```
+```{r time2, fig.height=4, include=FALSE}
+pdf("/Users/Christian/Dropbox/snusprojekt_graphs/snusbyyear.pdf", width = 7, height = 4)
+readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/plot.snusbyyear.Rds")
+dev.off()
+```
+
+## Forest plot
+```{r forest, out.width='\\textwidth', fig.align='center'}
+forestdata <- readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/forestdata.Rds")
+tabletext <- readRDS("/Users/Christian/NASdrive/Forsk/snusprojektet/tabletext.Rds")
+library(forestplot)
+forestplot(labeltext = tabletext, graph.pos = 4,
+           mean=c(NA, NA, forestdata$`Point Estimate`), 
+           lower=c(NA, NA, forestdata$Low), 
+           upper=c(NA, NA, forestdata$High),
+           xlab="   Snus better        Snus worse             ",
+           col=fpColors(box="black", lines="black", zero = "gray50"),
+           zero=1, cex=0.9, lineheight = "auto", boxsize=0.5, colgap=unit(6,"mm"),
+           lwd.ci=2, ci.vertices=TRUE, ci.vertices.height = 0.4,
+           txt_gp=fpTxtGp(label=gpar(cex=.6),
+                          ticks=gpar(cex=.6),
+                          xlab=gpar(cex = .6),
+                          title=gpar(cex = .6)),
+           graphwidth = unit(40, "mm"),
+           xticks=c(0.7,1,1.3)
+)
+```
+```{r forest2, include=FALSE}
+tabletext <- tabletext[ ,1:5]
+pdf("/Users/Christian/Dropbox/snusprojekt_graphs/forestplot.pdf", width = 8.3, height = 6)
+forestplot(labeltext = tabletext, graph.pos = 4,
+           mean=c(NA, NA, forestdata$`Point Estimate`), 
+           lower=c(NA, NA, forestdata$Low), 
+           upper=c(NA, NA, forestdata$High),
+           xlab="   Snus better        Snus worse             ",
+           col=fpColors(box="black", lines="black", zero = "gray50"),
+           zero=1, cex=0.9, lineheight = "auto", boxsize=0.4, colgap=unit(3,"mm"),
+           lwd.ci=2, ci.vertices=F, ci.vertices.height = 0.4,
+           txt_gp=fpTxtGp(label=gpar(cex=.6),
+                          ticks=gpar(cex=.6),
+                          xlab=gpar(cex = .6),
+                          title=gpar(cex = .6)),
+           graphwidth = unit(40, "mm"),
+           xticks=c(0.7,1,1.3)
+)
+dev.off()
+```
+

@@ -1,0 +1,209 @@
+pacman::p_load(tidyverse, haven, survival, lubridate)
+
+# Import data
+# rhia <- read_sav('/Volumes/TOTAL_AMI/rhia_epc_final.sav') # Haven method
+scaar <- read_sav('/Volumes/TOTAL_AMI/scaarprocedur.sav')
+
+# write_csv(rhia, '/Users/Christian/NASdrive/Forsk/rhia.csv')
+rhia <- read_csv('/Users/Christian/NASdrive/Forsk/rhia.csv')
+# write_csv(scaar, '/Users/Christian/NASdrive/Forsk/scaar.csv')
+scaar <- read_csv('/Users/Christian/NASdrive/Forsk/scaar.csv')
+
+# Get angiographydata (fynd) if angio was performed within 30 days
+# Rhia lookup table
+rhia_lut <- 
+  rhia %>% 
+  select(id_rhia, idnr, admission_date) %>% 
+  mutate(thirtydays = admission_date + 30) %>%
+  as_tibble()
+
+# scaar lookup table
+scaar_fynd <- 
+  scaar %>%
+  select(id_sc, idnr, interdat, fynd) %>%
+  arrange(interdat) %>%
+  filter(idnr %in% rhia_lut$idnr, 
+         !is.na(fynd)) %>%
+  as_tibble() #%>% head(100)
+
+# finns angio?
+fynd_30 <-
+rhia_lut %>%
+  mutate(idfinnsiscaar = idnr %in% scaar_fynd$idnr) %>%
+  filter(idfinnsiscaar) %>%
+  full_join(scaar_fynd, by = 'idnr') %>%
+  mutate(in_interval = ifelse(interdat %within% interval(admission_date, thirtydays), 1, 0)) %>%
+  filter(in_interval == 1) %>%
+  rename(fynd_30 = fynd) %>%
+  group_by(id_rhia) %>%
+  arrange(interdat) %>%
+  filter(row_number() == 1) %>%
+  select(id_rhia, fynd_30)
+
+
+# RHIA cleaning
+names(rhia) <- str_to_lower(names(rhia)) # lowercase varnames
+rhia_clean <- 
+rhia %>%
+  # exclude pats with unvalid age and sex data
+  filter(!is.na(d_age_hia),
+         !is.na(d_gender)) %>%
+  # exclude pats aged <= 18
+  filter(d_age_hia > 17) %>%
+  # Exclude patients with established disease (where we do not know when they debuted) 
+  filter(kom_cabg != 1,
+         kom_hinfarkt != 1,
+         kom_pci != 1) %>%
+  # Exclude those with invalid admission and discharge dates
+  filter(admission_date <= discharge_date) %>%
+  # add var fynd_30 and fill NA with 9, creade T/F var
+  left_join(fynd_30, by = 'id_rhia') %>% 
+  mutate(fynd_30 = ifelse(is.na(fynd_30), 9, fynd_30),
+         fynd_30_pos = case_when(fynd_30 == 1 ~ F,
+                                 fynd_30 == 9 ~ NA,
+                                 TRUE ~ T)) %>%
+  # create var sign_cad and then filter on it
+  # first diagnoses of sign cad
+  mutate(sign_cad = case_when(infarcttype == 1 ~ 1,
+                              infarcttype == 2 ~ 1,
+                              plannedpci == 1 ~ 1,
+                              plannedcabg == 1 ~ 1,
+                              d_repertreatment == 1 ~ 1,
+                              d_repertreatment == 2 ~ 1,
+                              d_repertreatment == 3 ~ 1,
+                              d_diagrupp == 1 ~ 1,
+                              d_diagrupp == 2 ~ 1,
+                              d_diagrupp == 3 ~ 1,
+                              d_ihs == 1 ~ 1,
+                              d_ami == 1 ~ 1)) %>% 
+  # then remove those with neg angio, but keep those with pos angio within 30 days
+  mutate(sign_cad = ifelse(is.na(sign_cad), 0, sign_cad),
+         sign_cad_2 = case_when(sign_cad == 1 & fynd_30_pos == FALSE ~ 0,
+                                sign_cad == 0 & fynd_30_pos == TRUE ~ 1,
+                                is.na(fynd_30_pos) ~ sign_cad,
+                              TRUE ~ sign_cad)) %>% #select(sign_cad, sign_cad_2, fynd_30, fynd_30_pos)
+  # keep those with significant CAD 
+  filter(sign_cad_2 == 1) %>%
+  # Select first entries only
+  group_by(idnr) %>%
+  arrange(admission_date) %>%
+  filter(row_number() == 1) %>%
+  ungroup() %>%
+  # create mortality endpoint vars
+  mutate(survdead = case_when(!is.na(dodsdatn) ~ 1,
+                              TRUE ~ 0),
+         survdead = ifelse(survdead != 1, 0, survdead),
+         survtime = ifelse(survdead == 1, 
+                           dodsdatn - admission_date,
+                            as.Date('2018-05-20') - admission_date)
+           ) %>%
+  # remove rows with a negative survtime - those who were admitted after swedeheart and PAR were synced
+  filter(survtime >= 0) %>%
+  # Add variable acute_cad
+  mutate(acute_cad = case_when(d_diagrupp == 1 ~ 1,
+                               d_diagrupp == 2 ~ 1,
+                               TRUE ~ 0)) 
+
+  
+# SCAAR Cleaning
+names(scaar) <- str_to_lower(names(scaar)) # lowercase varnames
+scaar_clean <-
+    scaar %>%
+    # exclude pats with unvalid age and sex data
+    filter(!is.na(d_age_angiopci),
+           !is.na(d_gender),
+           interdat > as.Date('1989-01-01')) %>%
+    # exclude pats aged <= 18
+    filter(d_age_angiopci > 17) %>%
+    # find only significant CAD
+    mutate(sign_cad = case_when(fynd >= 2 ~ 1,
+                                TRUE ~ 0)) %>%
+    filter(sign_cad == 1) %>%
+    # select first entries only
+    group_by(idnr) %>%
+    arrange(interdat) %>%
+    filter(row_number() %in% c(1)) %>%
+    ungroup %>%
+    # Exclude patients with established disease (where we do not know when they debuted) 
+    filter(tidpci != 1,
+           tidcabg != 1,
+           tidinf != 1) %>%
+  # create mortality endpoint vars
+  mutate(survdead = case_when(!is.na(ymd(dodsdat)) ~ 1,
+                              TRUE ~ 0),
+         survtime = ifelse(survdead == 1, 
+                           ymd(dodsdat) - interdat,
+                           as.Date('2018-05-20') - interdat)
+         ) %>%
+  # remove rows with a negative survtime - those who were admitted after swedeheart and PAR were synced
+  filter(survtime >= 0) %>%
+  # add variable acute_cad
+  mutate(acute_cad = case_when(indikation == 2 ~ 1,
+                               indikation == 3 ~ 1,
+                               indikation == 4 ~ 1,
+                               indikation == 5 ~ 1,
+                               indikation == 21 ~ 1,
+                               indikation == 22 ~ 1,
+                               indikation == 51 ~ 1,
+                               indikation == 161 ~ 1,
+                               indikation == 162 ~ 1,
+                               TRUE ~ 0)) 
+
+###### The greatest bind_rows of all times
+main_all_vars <- 
+rhia_clean %>%
+  bind_rows(scaar_clean) %>% 
+  # reformat variables
+  mutate(age = case_when(!is.na(d_age_hia) ~ d_age_hia,
+                         !is.na(d_age_angiopci) ~ d_age_angiopci),
+         indexdate = case_when(!is.na(interdat) ~ interdat,
+                               !is.na(admission_date) ~ admission_date),
+         rhia_1 = ifelse(!is.na(id_rhia), 1, 2)) %>% 
+  # Keep only first entry
+  group_by(idnr) %>%
+  arrange(indexdate, rhia_1) %>%
+  filter(row_number() == 1) %>%
+  ungroup() 
+
+
+## Variable formatting and selection
+main <- main_all_vars %>%
+  mutate(agegroup = case_when(age < 50 ~ 'below 50',
+                              age < 66 ~ '50-65',
+                              TRUE ~ '66 and above'),
+         inclusionperiod = case_when(year(indexdate) < 1996 ~ '<1995',
+                                     year(indexdate) < 2001 ~ '1996-2000',
+                                     year(indexdate) < 2006 ~ '2001-2005',
+                                     year(indexdate) < 2011 ~ '2006-2010',
+                                     year(indexdate) < 2016 ~ '2011-2015',
+                                     year(indexdate) < 2019 ~ '2016-2018'),
+         survtime_year = survtime/365,
+         activesmoking = case_when(smoking_status == 1 ~ 0,
+                            smoking_status == 2 ~ 1,
+                            smoking_status == 0 ~ 0),
+         fynd = ifelse(is.na(fynd), fynd_30, fynd)
+         ) %>%
+  #select only relevant variables
+  select(idnr, indexdate, acute_cad, inclusionperiod, 
+         age, d_gender, agegroup, d_bmi, smoking_status, activesmoking,
+         kom_stroke, kom_njursvikt, kom_kol, kom_demens,
+         kom_diabetes, kom_hsvikt, kom_hypertoni, kom_cancer,
+         fynd,
+         survdead, survtime, survtime_year) %>% 
+  mutate(agegroup = fct_relevel(agegroup, 'below 50'),
+         chr_acute_age_group = case_when(acute_cad == 1 & agegroup == 'below 50' ~ 'Acute, below 50',
+                                         acute_cad == 1 & agegroup == '50-65' ~ 'Acute, 50-65',
+                                         acute_cad == 1 & agegroup == '66 and above' ~ 'Acute, 66 and above',
+                                         acute_cad == 0 & agegroup == 'below 50' ~ 'Chronic, below 50',
+                                         acute_cad == 0 & agegroup == '50-65' ~ 'Chronic, 50-65',
+                                         acute_cad == 0 & agegroup == '66 and above' ~ 'Chronic, 66 and above'),
+          chr_acute_age_group = fct_relevel(chr_acute_age_group, "Acute, below 50", "Chronic, below 50", "Acute, 50-65", "Chronic, 50-65", "Acute, 66 and above")
+  )
+
+
+
+
+# Save main data file in feather format 
+library(feather)
+write_feather(main, '/Users/Christian/NASdrive/Forsk/feather.file')
+
