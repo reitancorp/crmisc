@@ -3,7 +3,7 @@ Type: Package
 Title: Miscellaneous functions for CRs research
 Version: 0.1.0
 Authors@R: person("Christian", "Reitan", email = "reitan.christian@gmail.com", role = c("aut", "cre"))
-Description: Mostly convenience functions when doing swedish cardiovascular registry research.
+Description: Mostly convenience functions for myself doing registry research.
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
