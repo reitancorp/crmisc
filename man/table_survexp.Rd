@@ -10,5 +10,5 @@ table_survexp(x)
 \item{x}{a survexp object from the survexp function}
 }
 \description{
-This function creates a simple table containing a survival curve from a survex object.
+This function creates a simple data frame containing a survival curve from a survex object.
 }

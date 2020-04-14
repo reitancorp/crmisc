@@ -1,7 +1,7 @@
 #' @title Convert survex to survfit object
-#' @description This function creates a simple table containing a survival curve from a survex object.
+#' @description This function creates a simple data frame containing a survival curve from a survex object.
 #' @param x a survexp object from the survexp function
-#' @evalRd Returns a dataframe with columns time, surv and group
+#' @export
 
 table_survexp <- function(x){
   data.frame(
